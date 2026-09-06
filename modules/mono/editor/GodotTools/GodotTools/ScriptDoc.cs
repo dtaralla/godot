@@ -171,7 +171,10 @@ namespace GodotTools
                 throw new FileNotFoundException($"Required XML documentation file was not found: '{xmlPath}'.", xmlPath);
 
             using var stream = System.IO.File.OpenRead(xmlPath);
-            XDocument document = XDocument.Load(stream);
+            // PreserveWhitespace keeps whitespace-only text nodes between adjacent elements
+            // (e.g. the space between "<b>DO NOT USE</b>" and a following "<c>...</c>"),
+            // which the default load options drop.
+            XDocument document = XDocument.Load(stream, LoadOptions.PreserveWhitespace);
             XElement? membersElement = document.Root?.Element("members");
 
             if (membersElement == null)

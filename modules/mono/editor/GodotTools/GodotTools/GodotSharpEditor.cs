@@ -446,7 +446,11 @@ namespace GodotTools
                 string? briefDescription = ScriptDoc.TryGetDocTag(xmlDocs, scriptType, typeDocId, "summary",
                     implicitInheritResolver: () => scriptType.BaseType != null ? ScriptDoc.GetTypeDocumentationId(scriptType.BaseType) : null);
 
-                string? fullDescription = ScriptDoc.TryGetDocTag(xmlDocs, scriptType, typeDocId, "remarks",
+                // The full description combines summary, remarks and seealso like member
+                // descriptions do, so the class page's Description section shows the summary
+                // text too (previously it only received the remarks, while the summary was
+                // rendered above the section as the brief description).
+                string? fullDescription = ScriptDoc.TryGetFullDocDescription(xmlDocs, scriptType, typeDocId,
                     implicitInheritResolver: () => scriptType.BaseType != null ? ScriptDoc.GetTypeDocumentationId(scriptType.BaseType) : null);
 
                 bool isGlobalClass = scriptType.IsDefined(typeof(GlobalClassAttribute), inherit: false);

@@ -33,6 +33,7 @@
 #include "core/io/resource_loader.h"
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
+#include "core/object/script_language.h"
 #include "editor/debugger/editor_debugger_inspector.h"
 #include "editor/debugger/editor_debugger_node.h"
 #include "editor/docks/filesystem_dock.h"
@@ -104,7 +105,18 @@ void InspectorDock::_menu_option_confirm(int p_option, bool p_confirmed) {
 		case OBJECT_REQUEST_HELP: {
 			if (current) {
 				EditorNode::get_singleton()->get_editor_main_screen()->select(EditorMainScreen::EDITOR_SCRIPT);
-				emit_signal(SNAME("request_help"), current->get_class());
+				// Prefer the documentation page of the object's script (e.g. a C# or
+				// GDScript class) over the one of its native base class, mirroring what
+				// the inspector categories do.
+				StringName class_name;
+				Ref<Script> script = current->get_script();
+				if (script.is_valid() && !script->get_doc_class_name().is_empty()) {
+					class_name = script->get_doc_class_name();
+				}
+				if (class_name.is_empty()) {
+					class_name = current->get_class();
+				}
+				emit_signal(SNAME("request_help"), class_name);
 			}
 		} break;
 

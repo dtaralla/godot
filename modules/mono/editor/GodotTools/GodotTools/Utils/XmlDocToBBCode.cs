@@ -307,6 +307,18 @@ namespace GodotTools.Utils
 
                         switch (elementName)
                         {
+                            case "b":
+                                sb.Append("[b]");
+                                foreach (XNode child in element.Nodes())
+                                    Render(child);
+                                sb.Append("[/b]");
+                                break;
+                            case "i":
+                                sb.Append("[i]");
+                                foreach (XNode child in element.Nodes())
+                                    Render(child);
+                                sb.Append("[/i]");
+                                break;
                             case "c":
                                 sb.Append("[code]");
                                 foreach (XNode child in element.Nodes())
@@ -319,9 +331,13 @@ namespace GodotTools.Utils
                                 sb.Append("[/csharp][/codeblocks]");
                                 break;
                             case "para":
+                                // Blank lines around the content so the normalization pass
+                                // below turns them into a [br] paragraph separator.
+                                sb.AppendLine();
                                 sb.AppendLine();
                                 foreach (XNode child in element.Nodes())
                                     Render(child);
+                                sb.AppendLine();
                                 sb.AppendLine();
                                 break;
                             case "see":
@@ -404,22 +420,63 @@ namespace GodotTools.Utils
             if (rendered.Length == 0)
                 return rendered;
 
-            // Trim leading whitespace on each line because XML doc has indentation
-            string[] lines = rendered.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+            // XML doc comments are hard-wrapped at the source line width, so a single newline
+            // is a soft wrap that must be joined with a space; only a blank line between two
+            // paragraphs becomes a [br]. Content inside [codeblocks] is left untouched, since
+            // the editor renders it as preformatted code that keeps its own line structure.
+            var sbNormalized = new StringBuilder();
 
-            StringBuilder sbNormalized = new StringBuilder();
-            bool firstLine = true;
-            foreach (string line in lines)
+            // Separator to place before the next content line: null when nothing was emitted
+            // yet, a space after a soft wrap, "[br]" across a paragraph boundary.
+            string? pendingSeparator = null;
+
+            void AppendTextLines(string text)
             {
-                string trimmedLine = line.TrimStart();
-                if (string.IsNullOrWhiteSpace(trimmedLine))
-                    continue;
+                string[] lines = text.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+                foreach (string line in lines)
+                {
+                    // Trim leading whitespace on each line because XML doc has indentation.
+                    string trimmedLine = line.TrimStart();
+                    if (string.IsNullOrWhiteSpace(trimmedLine))
+                    {
+                        if (pendingSeparator != null)
+                            pendingSeparator = "[br]";
+                        continue;
+                    }
 
-                if (!firstLine)
+                    if (pendingSeparator != null)
+                        sbNormalized.Append(pendingSeparator);
+                    sbNormalized.Append(trimmedLine);
+                    pendingSeparator = " ";
+                }
+            }
+
+            int pos = 0;
+            while (pos < rendered.Length)
+            {
+                int blockStart = rendered.IndexOf("[codeblocks]", pos, StringComparison.Ordinal);
+                if (blockStart < 0)
+                {
+                    AppendTextLines(rendered.Substring(pos));
+                    break;
+                }
+
+                AppendTextLines(rendered.Substring(pos, blockStart - pos));
+
+                int blockEnd = rendered.IndexOf("[/codeblocks]", blockStart, StringComparison.Ordinal);
+                if (blockEnd < 0)
+                {
+                    // Unterminated marker; treat the rest as regular text.
+                    AppendTextLines(rendered.Substring(blockStart));
+                    break;
+                }
+
+                if (pendingSeparator != null)
                     sbNormalized.Append("[br]");
-
-                sbNormalized.Append(trimmedLine);
-                firstLine = false;
+                int afterBlock = blockEnd + "[/codeblocks]".Length;
+                sbNormalized.Append(rendered, blockStart, afterBlock - blockStart);
+                pendingSeparator = "[br]";
+                pos = afterBlock;
             }
 
             return sbNormalized.ToString().Trim();
@@ -539,6 +596,44 @@ namespace GodotTools.Utils
                     sections.Append("[br] • [b]").Append(cleanedCref).Append("[/b]");
                     if (!string.IsNullOrWhiteSpace(exceptionDesc))
                         sections.Append(": ").Append(exceptionDesc);
+                }
+            }
+
+            // seealso -> See also section
+            var seealsoElements = memberElement.Elements("seealso").ToList();
+            if (seealsoElements.Count > 0)
+            {
+                if (sections.Length > 0)
+                    sections.Append("[br]");
+                sections.Append("[b]See also:[/b]");
+                foreach (XElement seealso in seealsoElements)
+                {
+                    string? href = seealso.Attribute("href")?.Value;
+                    string? cref = seealso.Attribute("cref")?.Value;
+                    if (!string.IsNullOrWhiteSpace(href))
+                    {
+                        string label = seealso.Value.Trim();
+                        if (string.IsNullOrEmpty(label))
+                            label = href;
+                        sections.Append("[br] • [url=").Append(href).Append(']').Append(label).Append("[/url]");
+                    }
+                    else if (!string.IsNullOrWhiteSpace(cref))
+                    {
+                        // Same resolution rules as an inline <see>: link members of the class
+                        // currently being documented, fall back to plain text otherwise.
+                        string? link = TryResolveDocLink(contextType, cref);
+                        sections.Append("[br] • ");
+                        if (link != null)
+                            sections.Append(link);
+                        else
+                            sections.Append("[code]").Append(StripCrefPrefix(cref)).Append("[/code]");
+                    }
+                    else
+                    {
+                        string text = RenderNodesToBbCode(members, contextType, seealso.Nodes());
+                        if (!string.IsNullOrWhiteSpace(text))
+                            sections.Append("[br] • ").Append(text);
+                    }
                 }
             }
 
