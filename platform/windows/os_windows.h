@@ -111,6 +111,7 @@ class OS_Windows : public OS {
 	CrashHandler crash_handler;
 
 #ifdef WINDOWS_DEBUG_OUTPUT_ENABLED
+	PrintHandlerList print_handlers;
 	ErrorHandlerList error_handlers;
 #endif
 

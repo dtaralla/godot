@@ -253,6 +253,18 @@ void OS_Windows::initialize_debugging() {
 }
 
 #ifdef WINDOWS_DEBUG_OUTPUT_ENABLED
+static void _print_handler(void *p_this, const String &p_string, bool p_error, bool p_rich) {
+	const char *prefix = "";
+	const char *suffix = "\n";
+	if (p_error) {
+		prefix = " ERROR: ";
+	} else if (p_rich) {
+		prefix = " RICH: ";
+	}
+	String p_str = prefix + p_string + suffix;
+	OutputDebugStringW((LPCWSTR)p_str.utf16().ptr());
+}
+
 static void _error_handler(void *p_self, const char *p_func, const char *p_file, int p_line, const char *p_error, const char *p_errorexp, bool p_editor_notify, ErrorHandlerType p_type) {
 	String err_str;
 	if (p_errorexp && p_errorexp[0]) {
@@ -269,6 +281,10 @@ void OS_Windows::initialize() {
 	crash_handler.initialize();
 
 #ifdef WINDOWS_DEBUG_OUTPUT_ENABLED
+    print_handlers.printfunc = _print_handler;
+    print_handlers.userdata = this;
+    add_print_handler(&print_handlers);
+
 	error_handlers.errfunc = _error_handler;
 	error_handlers.userdata = this;
 	add_error_handler(&error_handlers);

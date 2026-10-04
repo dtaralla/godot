@@ -14,6 +14,7 @@ namespace Godot
             GD.Print(message);
         }
 
+        [DebuggerStepThrough]
         public override void Fail(string message, string detailMessage)
         {
             GD.PrintErr("Assertion failed: ", message);
@@ -27,6 +28,11 @@ namespace Godot
             catch
             {
                 // ignored
+            }
+
+            if (Debugger.IsAttached)
+            {
+                Debugger.Break();
             }
         }
     }
