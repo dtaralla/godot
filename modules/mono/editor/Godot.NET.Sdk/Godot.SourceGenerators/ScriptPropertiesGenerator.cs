@@ -389,8 +389,14 @@ namespace Godot.SourceGenerators
                 .Append("\", usage: (global::Godot.PropertyUsageFlags)")
                 .Append((int)propertyInfo.Usage)
                 .Append(", exported: ")
-                .Append(propertyInfo.Exported ? "true" : "false")
-                .Append("));\n");
+                .Append(propertyInfo.Exported ? "true" : "false");
+            if (propertyInfo.ClassName != null)
+            {
+                source.Append(", className: new global::Godot.StringName(\"")
+                    .Append(propertyInfo.ClassName)
+                    .Append("\")");
+            }
+            source.Append("));\n");
         }
 
         private static IEnumerable<PropertyInfo> DetermineGroupingPropertyInfo(ISymbol memberSymbol)
@@ -559,6 +565,12 @@ namespace Godot.SourceGenerators
             var memberVariantType = MarshalUtils.ConvertMarshalTypeToVariantType(marshalType)!.Value;
             string memberName = memberSymbol.Name;
 
+            string? className = null;
+            if (memberVariantType == VariantType.Object && memberType is INamedTypeSymbol namedTypeSymbol)
+            {
+                className = namedTypeSymbol.GetPropertyInfoClassName();
+            }
+
             string? hintString = null;
 
             if (exportToolButtonAttr != null)
@@ -594,7 +606,7 @@ namespace Godot.SourceGenerators
                     propUsageMaybeNonPublic |= PropertyUsageFlags.Internal;
 
                 return new PropertyInfo(memberVariantType, memberName, PropertyHint.None,
-                    hintString: hintString, propUsageMaybeNonPublic, exported: false);
+                    hintString: hintString, propUsageMaybeNonPublic, className, exported: false);
             }
 
             if (!TryGetMemberExportHint(typeCache, memberType, exportAttr, memberVariantType,
@@ -629,7 +641,7 @@ namespace Godot.SourceGenerators
                 propUsage |= PropertyUsageFlags.NilIsVariant;
 
             return new PropertyInfo(memberVariantType, memberName,
-                hint, hintString, propUsage, exported: true);
+                hint, hintString, propUsage, className, exported: true);
         }
 
         private static bool TryGetMemberExportHint(
@@ -724,7 +736,7 @@ namespace Godot.SourceGenerators
                 if (memberNamedType.InheritsFrom("GodotSharp", "Godot.Resource"))
                 {
                     hint = PropertyHint.ResourceType;
-                    hintString = GetTypeName(memberNamedType);
+                    hintString = memberNamedType.GetPropertyInfoClassName();
 
                     return true;
                 }
@@ -732,7 +744,7 @@ namespace Godot.SourceGenerators
                 if (memberNamedType.InheritsFrom("GodotSharp", "Godot.Node"))
                 {
                     hint = PropertyHint.NodeType;
-                    hintString = GetTypeName(memberNamedType);
+                    hintString = memberNamedType.GetPropertyInfoClassName();
 
                     return true;
                 }
@@ -767,17 +779,6 @@ namespace Godot.SourceGenerators
                 hintString = hintStringValue;
 
                 return true;
-            }
-
-            static string GetTypeName(INamedTypeSymbol memberSymbol)
-            {
-                if (memberSymbol.GetAttributes()
-                    .Any(a => a.AttributeClass?.IsGodotGlobalClassAttribute() ?? false))
-                {
-                    return memberSymbol.Name;
-                }
-
-                return memberSymbol.GetGodotScriptNativeClassName()!;
             }
 
             static bool GetStringArrayEnumHint(VariantType elementVariantType,
