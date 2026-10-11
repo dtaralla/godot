@@ -269,7 +269,7 @@ def generate_sdk_package_versions():
     sys.path.remove(root_path)
 
     version_status = version_info["status"]
-    godotsharp_version_str = "{major}.{minor}.{patch}".format(**version_info)
+    godotsharp_version_str = "{major}.{minor}.{patch}.{custom}".format(**version_info)
     godot_dotnet_version_str = "{major}.{minor}.{patch}".format(**version_info)
     if version_status == "stable":
         # For stable versions, use the latest revision version available
