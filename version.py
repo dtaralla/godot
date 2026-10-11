@@ -3,6 +3,7 @@ name = "Godot Engine"
 major = 4
 minor = 7
 patch = 2
+custom = 1
 status = "stable"
 module_config = ""
 website = "https://godotengine.org"
