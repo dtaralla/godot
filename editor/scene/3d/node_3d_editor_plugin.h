@@ -291,6 +291,7 @@ private:
 	void _select_clicked(bool p_allow_locked);
 	ObjectID _select_ray(const Point2 &p_pos) const;
 	void _find_items_at_pos(const Point2 &p_pos, Vector<_RayResult> &r_results, bool p_include_locked);
+	bool _find_closest_pos(const Point2 &p_pos, Vector3 &result, const HashSet<ObjectID> *p_exclude = nullptr);
 
 	float _min_screen_dist_to_aabb(const AABB &p_aabb, const Transform3D &p_transform, const Point2 &p_cursor) const;
 	bool _find_closest_vertex_on_node(const Point2 &p_screen_pos, Node3D *p_node, float &r_closest_screen_dist, Vector3 &r_vertex_world) const;
@@ -635,6 +636,12 @@ public:
 		TRANSFORM_MODE_LOCAL = 2,
 	};
 
+	enum VertexSnapSourceMode {
+		MESH = 0,
+		COLLISION = 1,
+		SURFACE = 2,
+	};
+
 	real_t gizmo_view_rotation_scale = 1.0;
 
 private:
@@ -752,6 +759,7 @@ private:
 		MENU_VERTEX_SNAP_BASE_ORIGIN,
 		MENU_VERTEX_SNAP_SOURCE_MESH,
 		MENU_VERTEX_SNAP_SOURCE_COLLISION,
+		MENU_VERTEX_SNAP_SOURCE_SURFACE,
 	};
 
 	Button *tool_button[TOOL_MAX];
@@ -767,10 +775,10 @@ private:
 	ConfirmationDialog *xform_dialog = nullptr;
 	ConfirmationDialog *settings_dialog = nullptr;
 
+	VertexSnapSourceMode vertex_snap_source_mode = VertexSnapSourceMode::SURFACE;
 	bool snap_enabled = false;
 	bool snap_key_enabled = false;
-	bool vertex_snap_origin_mode = false;
-	bool vertex_snap_use_collision = false;
+	bool vertex_snap_origin_mode = true;
 	EditorSpinSlider *snap_translate = nullptr;
 	EditorSpinSlider *snap_rotate = nullptr;
 	EditorSpinSlider *snap_scale = nullptr;
@@ -957,7 +965,7 @@ public:
 	bool is_preserve_children_transform_enabled() const { return tool_option_button[Node3DEditor::TOOL_OPT_PRESERVE_CHILDREN_TRANSFORM]->is_pressed(); }
 	bool is_snap_enabled() const { return snap_enabled ^ snap_key_enabled; }
 	bool is_vertex_snap_origin_mode() const { return vertex_snap_origin_mode; }
-	bool is_vertex_snap_use_collision() const;
+	bool is_vertex_snap_source_mode(VertexSnapSourceMode mode) const;
 	real_t get_translate_snap() const;
 	real_t get_rotate_snap() const;
 	real_t get_scale_snap() const;

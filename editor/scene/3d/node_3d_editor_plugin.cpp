@@ -891,7 +891,7 @@ static bool _node_has_snap_target(Node *p_node, bool p_use_collision) {
 
 bool Node3DEditorViewport::_find_closest_vertex_on_node(const Point2 &p_screen_pos, Node3D *p_node, float &r_closest_screen_dist, Vector3 &r_vertex_world) const {
 	bool found = false;
-	bool use_collision = Node3DEditor::get_singleton()->is_vertex_snap_use_collision();
+	bool use_collision = Node3DEditor::get_singleton()->is_vertex_snap_source_mode(Node3DEditor::COLLISION);
 	bool walk_collision_segments = use_collision && Object::cast_to<CollisionShape3D>(p_node);
 
 	Transform3D gt = p_node->get_global_transform();
@@ -985,7 +985,7 @@ bool Node3DEditorViewport::_find_closest_vertex_in_scene(const Point2 &p_screen_
 	Point2 max_pos(p_screen_pos.x + p_threshold, p_screen_pos.y + p_threshold);
 	Vector<Node3D *> nodes_with_gizmos = Node3DEditor::get_singleton()->gizmo_bvh_frustum_query(_build_screen_frustum(min_pos, max_pos));
 
-	bool use_collision = Node3DEditor::get_singleton()->is_vertex_snap_use_collision();
+	bool use_collision = Node3DEditor::get_singleton()->is_vertex_snap_source_mode(Node3DEditor::COLLISION);
 
 	for (Node3D *spat : nodes_with_gizmos) {
 		if (!spat) {
@@ -1109,9 +1109,21 @@ void Node3DEditorViewport::_vertex_snap_update_source(const Point2 &p_screen_pos
 	bool found = false;
 
 	if (spatial_editor->is_vertex_snap_origin_mode()) {
-		found = _find_closest_vertex_in_scene(p_screen_pos, threshold, vw);
+		if (spatial_editor->is_vertex_snap_source_mode(Node3DEditor::SURFACE)) {
+			HashSet<ObjectID> exclude_self;
+			for (Node *E : selection) {
+				if (!E) {
+					continue;
+				}
+				exclude_self.insert(E->get_instance_id());
+			}
+			found = _find_closest_pos(p_screen_pos, vw, &exclude_self);
+		}
+		else {
+			found = _find_closest_vertex_in_scene(p_screen_pos, threshold, vw);
+		}
 	} else {
-		bool use_collision = spatial_editor->is_vertex_snap_use_collision();
+		bool use_collision = spatial_editor->is_vertex_snap_source_mode(Node3DEditor::COLLISION);
 		bool selection_has_snap_target = false;
 		for (Node *E : selection) {
 			Node3D *sp = Object::cast_to<Node3D>(E);
@@ -1207,6 +1219,76 @@ void Node3DEditorViewport::_find_items_at_pos(const Point2 &p_pos, Vector<_RayRe
 	}
 
 	r_results.sort();
+}
+
+bool Node3DEditorViewport::_find_closest_pos(const Point2 &p_pos, Vector3 &result, const HashSet<ObjectID> *p_exclude) {
+	Vector3 ray = get_ray(p_pos);
+	Vector3 pos = get_ray_pos(p_pos);
+
+	Vector<Node3D *> nodes_with_gizmos = Node3DEditor::get_singleton()->gizmo_bvh_ray_query(pos, pos + ray * camera->get_far());
+
+	HashSet<Node3D *> found_nodes;
+
+	float min_dist = get_zfar();
+	for (Node3D *spat : nodes_with_gizmos) {
+		if (!spat) {
+			continue;
+		}
+
+		if (found_nodes.has(spat)) {
+			continue;
+		}
+
+		if (p_exclude) {
+			bool should_skip = false;
+			Node *current = spat;
+			while (current) {
+				if (p_exclude->has(current->get_instance_id())) {
+					should_skip = true;
+					break;
+				}
+				current = current->get_parent();
+			}
+			if (should_skip) {
+				continue;
+			}
+		}
+
+		Vector<Ref<Node3DGizmo>> gizmos = spat->get_gizmos();
+		for (int j = 0; j < gizmos.size(); j++) {
+			Ref<EditorNode3DGizmo> seg = gizmos[j];
+
+			if (seg.is_null()) {
+				continue;
+			}
+
+			Vector3 point;
+			Vector3 normal;
+
+			bool inters = seg->intersect_ray(camera, p_pos, point, normal);
+
+			if (!inters) {
+				continue;
+			}
+
+			const real_t dist = pos.distance_to(point);
+
+			if (dist < 0) {
+				continue;
+			}
+
+			found_nodes.insert(spat);
+
+			if (dist < min_dist) {
+				min_dist = dist;
+				result = point;
+			}
+
+			break;
+		}
+	}
+
+	return found_nodes.size() > 0;
 }
 
 Vector3 Node3DEditorViewport::_get_screen_to_space(const Vector3 &p_vector3) {
@@ -2122,7 +2204,7 @@ void Node3DEditorViewport::_sinput(const Ref<InputEvent> &p_event) {
 					if (!use_origin_snap) {
 						bool has_snap_target = false;
 						for (Node *E : selection) {
-							if (_node_has_snap_target(E, spatial_editor->is_vertex_snap_use_collision())) {
+							if (_node_has_snap_target(E, spatial_editor->is_vertex_snap_source_mode(Node3DEditor::COLLISION))) {
 								has_snap_target = true;
 								break;
 							}
@@ -2141,48 +2223,18 @@ void Node3DEditorViewport::_sinput(const Ref<InputEvent> &p_event) {
 						for (Node *E : selection) {
 							Node3D *sp = Object::cast_to<Node3D>(E);
 							if (sp) {
-								vertex_snap_original_positions[sp->get_instance_id()] = sp->get_global_position();
+								if (use_origin_snap && vertex_snap_original_positions.size() == 0) {
+									vertex_snap_original_positions[sp->get_instance_id()] = vertex_snap_source;
+								}
+								else {
+									vertex_snap_original_positions[sp->get_instance_id()] = sp->get_global_position();
+								}
 							}
 						}
 
-						if (!use_origin_snap) {
-							vertex_snap_dragging = true;
-							Vector3 cam_normal = camera->get_global_transform().basis.get_column(2);
-							vertex_snap_drag_plane = Plane(cam_normal, vertex_snap_source);
-						} else {
-							if (has_subgizmos) {
-								Transform3D gi = selected->get_global_transform().affine_inverse();
-								Vector3 local_target = gi.xform(vertex_snap_source);
-
-								Vector<int> ids;
-								Vector<Transform3D> restores;
-								for (const KeyValue<int, Transform3D> &GE : se->subgizmos) {
-									Transform3D original_xform = se->gizmo->get_subgizmo_transform(GE.key);
-									ids.push_back(GE.key);
-									restores.push_back(original_xform);
-
-									Transform3D snapped_xform = original_xform;
-									snapped_xform.origin = local_target;
-									se->gizmo->set_subgizmo_transform(GE.key, snapped_xform);
-								}
-								se->gizmo->commit_subgizmos(ids, restores, false);
-							} else {
-								EditorUndoRedoManager *undo_redo = EditorUndoRedoManager::get_singleton();
-								undo_redo->create_action(TTR("Vertex Snap"));
-								for (const KeyValue<ObjectID, Vector3> &E2 : vertex_snap_original_positions) {
-									Node3D *node = ObjectDB::get_instance<Node3D>(E2.key);
-									if (node) {
-										node->set_global_position(vertex_snap_source);
-										undo_redo->add_do_method(node, "set_global_position", vertex_snap_source);
-										undo_redo->add_undo_method(node, "set_global_position", E2.value);
-									}
-								}
-								undo_redo->commit_action(false);
-							}
-							vertex_snap_original_positions.clear();
-							spatial_editor->update_transform_gizmo();
-							_reset_follow_mode_count();
-						}
+						vertex_snap_dragging = true;
+						Vector3 cam_normal = camera->get_global_transform().basis.get_column(2);
+						vertex_snap_drag_plane = Plane(cam_normal, vertex_snap_source);
 						surface->queue_redraw();
 					}
 				} else {
@@ -2639,22 +2691,34 @@ void Node3DEditorViewport::_sinput(const Ref<InputEvent> &p_event) {
 				Vector3 displacement;
 
 				Vector3 target;
-				if (_find_closest_vertex_in_scene(m->get_position(), vertex_snap_threshold, target, &vertex_snap_original_positions)) {
-					vertex_snap_target = target;
-					vertex_snap_has_target = true;
-					displacement = target - vertex_snap_source;
-					has_displacement = true;
-					set_message(TTR("Vertex Snap (Snapped)"));
-				} else {
-					vertex_snap_has_target = false;
-					Vector3 ray_pos = get_ray_pos(m->get_position());
-					Vector3 ray_dir = get_ray(m->get_position());
-					Vector3 intersection;
-					if (vertex_snap_drag_plane.intersects_ray(ray_pos, ray_dir, &intersection)) {
-						displacement = intersection - vertex_snap_source;
-						has_displacement = true;
+				if (spatial_editor->is_vertex_snap_source_mode(Node3DEditor::SURFACE)) {
+					HashSet<ObjectID> exclude_self;
+					for (const KeyValue<ObjectID, Vector3> &E : vertex_snap_original_positions) {
+						if (Node3D *node = ObjectDB::get_instance<Node3D>(E.key)) {
+							exclude_self.insert(node->get_instance_id());
+						}
 					}
-					set_message(TTR("Vertex Snap"));
+					has_displacement = _find_closest_pos(m->get_position(), target, &exclude_self);
+					displacement = target - vertex_snap_source;
+				}
+				else {
+					if (_find_closest_vertex_in_scene(m->get_position(), vertex_snap_threshold, target, &vertex_snap_original_positions)) {
+						vertex_snap_target = target;
+						vertex_snap_has_target = true;
+						displacement = target - vertex_snap_source;
+						has_displacement = true;
+						set_message(TTR("Vertex Snap (Snapped)"));
+					} else {
+						vertex_snap_has_target = false;
+						Vector3 ray_pos = get_ray_pos(m->get_position());
+						Vector3 ray_dir = get_ray(m->get_position());
+						Vector3 intersection;
+						if (vertex_snap_drag_plane.intersects_ray(ray_pos, ray_dir, &intersection)) {
+							displacement = intersection - vertex_snap_source;
+							has_displacement = true;
+						}
+						set_message(TTR("Vertex Snap"));
+					}
 				}
 
 				if (has_displacement) {
@@ -7634,7 +7698,7 @@ Dictionary Node3DEditor::get_state() const {
 	d["viewports"] = vpdata;
 
 	d["vertex_snap_origin_mode"] = vertex_snap_origin_mode;
-	d["vertex_snap_use_collision"] = vertex_snap_use_collision;
+	d["vertex_snap_source_mode"] = vertex_snap_source_mode;
 	d["show_grid"] = view_layout_menu->get_popup()->is_item_checked(view_layout_menu->get_popup()->get_item_index(MENU_VIEW_GRID));
 	d["show_origin"] = view_layout_menu->get_popup()->is_item_checked(view_layout_menu->get_popup()->get_item_index(MENU_VIEW_ORIGIN));
 	d["fov"] = get_fov();
@@ -7717,12 +7781,14 @@ void Node3DEditor::set_state(const Dictionary &p_state) {
 		transform_menu->get_popup()->set_item_checked(idx_origin, vertex_snap_origin_mode);
 	}
 
-	if (d.has("vertex_snap_use_collision")) {
-		vertex_snap_use_collision = d["vertex_snap_use_collision"];
+	if (d.has("vertex_snap_source_mode")) {
+		vertex_snap_source_mode = d["vertex_snap_source_mode"];
 		int idx_mesh = transform_menu->get_popup()->get_item_index(MENU_VERTEX_SNAP_SOURCE_MESH);
 		int idx_collision = transform_menu->get_popup()->get_item_index(MENU_VERTEX_SNAP_SOURCE_COLLISION);
-		transform_menu->get_popup()->set_item_checked(idx_mesh, !vertex_snap_use_collision);
-		transform_menu->get_popup()->set_item_checked(idx_collision, vertex_snap_use_collision);
+		int idx_surface = transform_menu->get_popup()->get_item_index(MENU_VERTEX_SNAP_SOURCE_SURFACE);
+		transform_menu->get_popup()->set_item_checked(idx_mesh, vertex_snap_source_mode == VertexSnapSourceMode::MESH);
+		transform_menu->get_popup()->set_item_checked(idx_collision, vertex_snap_source_mode == VertexSnapSourceMode::COLLISION);
+		transform_menu->get_popup()->set_item_checked(idx_surface, vertex_snap_source_mode == VertexSnapSourceMode::SURFACE);
 	}
 
 	if (d.has("local_coords")) {
@@ -7911,6 +7977,8 @@ void Node3DEditor::_update_vertex_snap_tooltips() {
 			TTR("Snap to vertices of visual meshes.\nHold Shift while vertex snapping to temporarily snap to collision shapes instead."));
 	p->set_item_tooltip(p->get_item_index(MENU_VERTEX_SNAP_SOURCE_COLLISION),
 			TTR("Snap to vertices of collision shapes.\nHold Shift while vertex snapping to temporarily snap to mesh vertices instead."));
+	p->set_item_tooltip(p->get_item_index(MENU_VERTEX_SNAP_SOURCE_SURFACE),
+			TTR("Snap to surface of visual meshes.\nHold Shift while vertex snapping to temporarily snap to mesh vertices instead."));
 }
 
 void Node3DEditor::_xform_dialog_action() {
@@ -8093,18 +8161,31 @@ void Node3DEditor::_menu_item_pressed(int p_option) {
 			transform_menu->get_popup()->set_item_checked(idx_origin, true);
 		} break;
 		case MENU_VERTEX_SNAP_SOURCE_MESH: {
-			vertex_snap_use_collision = false;
+			vertex_snap_source_mode = VertexSnapSourceMode::MESH;
 			int idx_mesh = transform_menu->get_popup()->get_item_index(MENU_VERTEX_SNAP_SOURCE_MESH);
 			int idx_collision = transform_menu->get_popup()->get_item_index(MENU_VERTEX_SNAP_SOURCE_COLLISION);
+			int idx_surface = transform_menu->get_popup()->get_item_index(MENU_VERTEX_SNAP_SOURCE_SURFACE);
 			transform_menu->get_popup()->set_item_checked(idx_mesh, true);
 			transform_menu->get_popup()->set_item_checked(idx_collision, false);
+			transform_menu->get_popup()->set_item_checked(idx_surface, false);
 		} break;
 		case MENU_VERTEX_SNAP_SOURCE_COLLISION: {
-			vertex_snap_use_collision = true;
+			vertex_snap_source_mode = VertexSnapSourceMode::COLLISION;
 			int idx_mesh = transform_menu->get_popup()->get_item_index(MENU_VERTEX_SNAP_SOURCE_MESH);
 			int idx_collision = transform_menu->get_popup()->get_item_index(MENU_VERTEX_SNAP_SOURCE_COLLISION);
+			int idx_surface = transform_menu->get_popup()->get_item_index(MENU_VERTEX_SNAP_SOURCE_SURFACE);
 			transform_menu->get_popup()->set_item_checked(idx_mesh, false);
 			transform_menu->get_popup()->set_item_checked(idx_collision, true);
+			transform_menu->get_popup()->set_item_checked(idx_surface, false);
+		} break;
+		case MENU_VERTEX_SNAP_SOURCE_SURFACE: {
+			vertex_snap_source_mode = VertexSnapSourceMode::SURFACE;
+			int idx_mesh = transform_menu->get_popup()->get_item_index(MENU_VERTEX_SNAP_SOURCE_MESH);
+			int idx_collision = transform_menu->get_popup()->get_item_index(MENU_VERTEX_SNAP_SOURCE_COLLISION);
+			int idx_surface = transform_menu->get_popup()->get_item_index(MENU_VERTEX_SNAP_SOURCE_SURFACE);
+			transform_menu->get_popup()->set_item_checked(idx_mesh, false);
+			transform_menu->get_popup()->set_item_checked(idx_collision, false);
+			transform_menu->get_popup()->set_item_checked(idx_surface, true);
 		} break;
 		case MENU_TRANSFORM_DIALOG: {
 			for (int i = 0; i < 3; i++) {
@@ -10720,13 +10801,14 @@ Node3DEditor::Node3DEditor() {
 	p->add_separator();
 	ED_SHORTCUT("spatial_editor/vertex_snap", TTRC("Vertex Snap"), Key::B);
 	p->add_radio_check_item(TTRC("Snap Vertex to Vertex"), MENU_VERTEX_SNAP_BASE_VERTEX);
-	p->set_item_checked(p->get_item_index(MENU_VERTEX_SNAP_BASE_VERTEX), true);
 	p->add_radio_check_item(TTRC("Snap Origin to Vertex"), MENU_VERTEX_SNAP_BASE_ORIGIN);
+	p->set_item_checked(p->get_item_index(MENU_VERTEX_SNAP_BASE_ORIGIN), true);
 
 	p->add_separator();
 	p->add_radio_check_item(TTRC("Snap to Mesh Vertices"), MENU_VERTEX_SNAP_SOURCE_MESH);
-	p->set_item_checked(p->get_item_index(MENU_VERTEX_SNAP_SOURCE_MESH), true);
 	p->add_radio_check_item(TTRC("Snap to Collision Vertices"), MENU_VERTEX_SNAP_SOURCE_COLLISION);
+	p->add_radio_check_item(TTRC("Snap to Mesh Surface"), MENU_VERTEX_SNAP_SOURCE_SURFACE);
+	p->set_item_checked(p->get_item_index(MENU_VERTEX_SNAP_SOURCE_SURFACE), true);
 	_update_vertex_snap_tooltips();
 
 	p->add_separator();
@@ -11229,8 +11311,20 @@ bool Node3DEditor::is_gizmo_visible() const {
 	return gizmo.visible;
 }
 
-bool Node3DEditor::is_vertex_snap_use_collision() const {
-	return vertex_snap_use_collision != Input::get_singleton()->is_key_pressed(Key::SHIFT);
+bool Node3DEditor::is_vertex_snap_source_mode(VertexSnapSourceMode mode) const {
+	if (Input::get_singleton()->is_key_pressed(Key::SHIFT)) {
+		switch (mode) {
+			default:
+			case VertexSnapSourceMode::SURFACE:
+				return false;
+			case VertexSnapSourceMode::COLLISION:
+				return vertex_snap_source_mode == VertexSnapSourceMode::MESH;
+			case VertexSnapSourceMode::MESH:
+				return vertex_snap_source_mode == VertexSnapSourceMode::COLLISION || vertex_snap_source_mode == VertexSnapSourceMode::SURFACE;
+		}
+	}
+
+	return vertex_snap_source_mode == mode;
 }
 
 real_t Node3DEditor::get_translate_snap() const {
