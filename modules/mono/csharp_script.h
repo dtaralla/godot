@@ -381,6 +381,8 @@ public:
 
 	CSharpInstance(const Ref<CSharpScript> &p_script);
 	~CSharpInstance();
+
+	virtual bool lang_equals(ScriptInstance *other) override;
 };
 
 struct CSharpScriptBinding {

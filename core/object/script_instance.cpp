@@ -88,3 +88,7 @@ Variant ScriptInstance::property_get_fallback(const StringName &, bool *r_valid)
 const Variant ScriptInstance::get_rpc_config() const {
 	return get_script()->get_rpc_config();
 }
+
+bool ScriptInstance::lang_equals(ScriptInstance *other) {
+	return this == other;
+}

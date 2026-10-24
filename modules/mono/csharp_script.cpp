@@ -2056,6 +2056,34 @@ CSharpInstance::~CSharpInstance() {
 	}
 }
 
+bool CSharpInstance::lang_equals(ScriptInstance *other) {
+	if (!has_method("Equals")) {
+		return ScriptInstance::lang_equals(other);
+	}
+
+	CSharpInstance *other_cs = nullptr;
+
+	if (other != nullptr) {
+		if (!other->get_script()->is_class(get_script()->get_class_name())) {
+			return false;
+		}
+		other_cs = dynamic_cast<CSharpInstance*>(other);
+	}
+
+	DEV_ASSERT(cs_instance != nullptr);
+
+	Variant arg = VariantInternal::make(other_cs ? other_cs->get_owner() : static_cast<const Object *>(nullptr));
+	const Variant *args[1] = { &arg };
+	Callable::CallError ce;
+	Variant ret = callp("Equals", args, 1, ce);
+
+	if (ce.error == Callable::CallError::CALL_OK) {
+		return ret.booleanize();
+	}
+
+	return false;
+}
+
 #ifdef TOOLS_ENABLED
 void CSharpScript::_placeholder_erased(PlaceHolderScriptInstance *p_placeholder) {
 	placeholders.erase(p_placeholder);

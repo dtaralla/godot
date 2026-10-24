@@ -94,4 +94,6 @@ public:
 
 	virtual ScriptLanguage *get_language() = 0;
 	virtual ~ScriptInstance() {}
+
+	virtual bool lang_equals(ScriptInstance *other);
 };

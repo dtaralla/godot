@@ -30,6 +30,7 @@
 
 #pragma once
 
+#include "core/object/script_instance.h"
 #include "core/variant/method_ptrcall.h"
 #include "core/variant/type_info.h"
 #include "core/variant/variant.h"
@@ -473,6 +474,20 @@ public:
 	static inline void validated_evaluate(const Variant *left, const Variant *right, Variant *r_ret) {
 		const Object *a = left->get_validated_object();
 		const Object *b = right->get_validated_object();
+
+		ScriptInstance *si_a = a ? a->get_script_instance() : nullptr;
+		ScriptInstance *si_b = b ? b->get_script_instance() : nullptr;
+		// si_a == si_b, si_a == null
+		if (si_a != nullptr && (si_b != nullptr || b == nullptr)) {
+			VariantInternalAccessor<bool>::get(r_ret) = si_a->lang_equals(si_b);
+			return;
+		}
+		// null == si_b, si_a == si_b
+		if (si_b != nullptr && (si_a != nullptr || a == nullptr)) {
+			VariantInternalAccessor<bool>::get(r_ret) = si_b->lang_equals(si_a);
+			return;
+		}
+		// a == b, a == null, null == b, null == null
 		VariantInternalAccessor<bool>::get(r_ret) = a == b;
 	}
 	static void ptr_evaluate(const void *left, const void *right, void *r_ret) {
@@ -485,6 +500,11 @@ class OperatorEvaluatorEqualObjectNil : public CommonEvaluate<OperatorEvaluatorE
 public:
 	static inline void validated_evaluate(const Variant *left, const Variant *right, Variant *r_ret) {
 		const Object *a = left->get_validated_object();
+		ScriptInstance *si_a = a ? a->get_script_instance() : nullptr;
+		if (si_a != nullptr) {
+			VariantInternalAccessor<bool>::get(r_ret) = si_a->lang_equals(nullptr);
+			return;
+		}
 		VariantInternalAccessor<bool>::get(r_ret) = a == nullptr;
 	}
 	static void ptr_evaluate(const void *left, const void *right, void *r_ret) {
@@ -497,6 +517,11 @@ class OperatorEvaluatorEqualNilObject : public CommonEvaluate<OperatorEvaluatorE
 public:
 	static inline void validated_evaluate(const Variant *left, const Variant *right, Variant *r_ret) {
 		const Object *b = right->get_validated_object();
+		ScriptInstance *si_b = b ? b->get_script_instance() : nullptr;
+		if (si_b != nullptr) {
+			VariantInternalAccessor<bool>::get(r_ret) = si_b->lang_equals(nullptr);
+			return;
+		}
 		VariantInternalAccessor<bool>::get(r_ret) = nullptr == b;
 	}
 	static void ptr_evaluate(const void *left, const void *right, void *r_ret) {
@@ -522,6 +547,20 @@ public:
 	static inline void validated_evaluate(const Variant *left, const Variant *right, Variant *r_ret) {
 		Object *a = left->get_validated_object();
 		Object *b = right->get_validated_object();
+
+		ScriptInstance *si_a = a ? a->get_script_instance() : nullptr;
+		ScriptInstance *si_b = b ? b->get_script_instance() : nullptr;
+		// si_a != si_b, si_a != null
+		if (si_a != nullptr && (si_b != nullptr || b == nullptr)) {
+			VariantInternalAccessor<bool>::get(r_ret) = !si_a->lang_equals(si_b);
+			return;
+		}
+		// null != si_b, si_a != si_b
+		if (si_b != nullptr && (si_a != nullptr || a == nullptr)) {
+			VariantInternalAccessor<bool>::get(r_ret) = !si_b->lang_equals(si_a);
+			return;
+		}
+		// a != b, a != null, null != b, null != null
 		VariantInternalAccessor<bool>::get(r_ret) = a != b;
 	}
 	static void ptr_evaluate(const void *left, const void *right, void *r_ret) {
@@ -534,6 +573,11 @@ class OperatorEvaluatorNotEqualObjectNil : public CommonEvaluate<OperatorEvaluat
 public:
 	static inline void validated_evaluate(const Variant *left, const Variant *right, Variant *r_ret) {
 		Object *a = left->get_validated_object();
+		ScriptInstance *si_a = a ? a->get_script_instance() : nullptr;
+		if (si_a != nullptr) {
+			VariantInternalAccessor<bool>::get(r_ret) = !si_a->lang_equals(nullptr);
+			return;
+		}
 		VariantInternalAccessor<bool>::get(r_ret) = a != nullptr;
 	}
 	static void ptr_evaluate(const void *left, const void *right, void *r_ret) {
@@ -546,6 +590,11 @@ class OperatorEvaluatorNotEqualNilObject : public CommonEvaluate<OperatorEvaluat
 public:
 	static inline void validated_evaluate(const Variant *left, const Variant *right, Variant *r_ret) {
 		Object *b = right->get_validated_object();
+		ScriptInstance *si_b = b ? b->get_script_instance() : nullptr;
+		if (si_b != nullptr) {
+			VariantInternalAccessor<bool>::get(r_ret) = !si_b->lang_equals(nullptr);
+			return;
+		}
 		VariantInternalAccessor<bool>::get(r_ret) = nullptr != b;
 	}
 	static void ptr_evaluate(const void *left, const void *right, void *r_ret) {
