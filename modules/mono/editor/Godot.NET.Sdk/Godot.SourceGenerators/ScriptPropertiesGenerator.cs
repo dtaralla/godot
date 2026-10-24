@@ -588,8 +588,13 @@ namespace Godot.SourceGenerators
 
             if (exportAttr == null)
             {
+                // Only non-exported properties are allowed to be non-public.
+                var propUsageMaybeNonPublic = PropertyUsageFlags.ScriptVariable;
+                if (memberSymbol.DeclaredAccessibility != Accessibility.Public)
+                    propUsageMaybeNonPublic |= PropertyUsageFlags.Internal;
+
                 return new PropertyInfo(memberVariantType, memberName, PropertyHint.None,
-                    hintString: hintString, PropertyUsageFlags.ScriptVariable, exported: false);
+                    hintString: hintString, propUsageMaybeNonPublic, exported: false);
             }
 
             if (!TryGetMemberExportHint(typeCache, memberType, exportAttr, memberVariantType,
